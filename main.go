@@ -92,12 +92,12 @@ func main() {
 	router.GET("/download/:fileID", controllers.GetFile)
 
 	srv := &http.Server{
-		Addr:    ":8080",
+		Addr:    ":80",
 		Handler: router,
 	}
 
 	go func() {
-		log.Println("Server starting on :8080")
+		log.Println("Server starting on :80")
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Server failed to start: %v", err)
 		}
