@@ -95,7 +95,9 @@ export default function DriveInterface() {
             let chunksCompleted = 0;
             const queue = Array.from({ length: totalChunks }, (_, i) => i);
 
-            const uploadChunk = async (chunkIndex: number) => {
+            const failedChunks: number[] = [];
+            
+            const uploadChunk = async (chunkIndex: number, retryCount = 0): Promise<boolean> => {
                 const start = chunkIndex * CHUNK_SIZE;
                 const end = Math.min(start + CHUNK_SIZE, file.size);
                 const chunk = file.slice(start, end);
@@ -106,12 +108,14 @@ export default function DriveInterface() {
                 formData.append('sequence', chunkIndex.toString());
 
                 const MAX_RETRIES = 3;
-                let lastError;
+                let lastError: any;
 
                 for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
                     try {
                         console.log(`[Chunk ${chunkIndex}] Attempt ${attempt + 1}/${MAX_RETRIES}`);
-                        await axios.post(`${API_URL}/upload`, formData);
+                        await axios.post(`${API_URL}/upload`, formData, {
+                            timeout: 60000, // 60 second timeout
+                        });
                         console.log(`[Chunk ${chunkIndex}] Finished!`);
 
                         chunksCompleted++;
@@ -119,24 +123,38 @@ export default function DriveInterface() {
                         setUploadProgress(prev => prev.map(p =>
                             p.uploadId === uploadId ? { ...p, progress } : p
                         ));
-                        return; // Success
-                    } catch (error) {
+                        return true; // Success
+                    } catch (error: any) {
                         console.warn(`[Chunk ${chunkIndex}] Failed attempt ${attempt + 1}`, error);
                         lastError = error;
-                        // Wait 1s * attempt before retry
-                        await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)));
+                        // Exponential backoff: wait longer between retries
+                        const delay = Math.min(1000 * Math.pow(2, attempt), 10000);
+                        await new Promise(resolve => setTimeout(resolve, delay));
                     }
                 }
-                throw lastError; // Failed after all retries
+                
+                // After all retries failed, don't throw - return false instead
+                console.error(`[Chunk ${chunkIndex}] Failed after ${MAX_RETRIES} attempts`);
+                return false;
             };
 
             // Process queue with concurrency limit
-            const activeUploads: Promise<void>[] = [];
+            const activeUploads: Promise<{ index: number; success: boolean }>[] = [];
+            const chunkResults: Map<number, boolean> = new Map();
 
             for (const chunkIndex of queue) {
-                const p = uploadChunk(chunkIndex).then(() => {
-                    activeUploads.splice(activeUploads.indexOf(p), 1);
+                const p = uploadChunk(chunkIndex).then((success) => {
+                    chunkResults.set(chunkIndex, success);
+                    if (!success) {
+                        failedChunks.push(chunkIndex);
+                    }
+                    return { index: chunkIndex, success };
+                }).catch(() => {
+                    chunkResults.set(chunkIndex, false);
+                    failedChunks.push(chunkIndex);
+                    return { index: chunkIndex, success: false };
                 });
+                
                 activeUploads.push(p);
 
                 if (activeUploads.length >= CONCURRENCY_LIMIT) {
@@ -144,8 +162,43 @@ export default function DriveInterface() {
                 }
             }
 
-            // Wait for remaining uploads
-            await Promise.all(activeUploads);
+            // Wait for remaining uploads - use allSettled to continue even if some fail
+            await Promise.allSettled(activeUploads);
+
+            // Retry failed chunks with exponential backoff
+            if (failedChunks.length > 0) {
+                console.log(`Retrying ${failedChunks.length} failed chunks...`);
+                const MAX_RETRY_ROUNDS = 3;
+                
+                for (let round = 0; round < MAX_RETRY_ROUNDS && failedChunks.length > 0; round++) {
+                    const chunksToRetry = [...failedChunks];
+                    failedChunks.length = 0; // Clear array
+                    
+                    const retryPromises = chunksToRetry.map(chunkIndex => 
+                        uploadChunk(chunkIndex, round).then((success) => {
+                            if (!success) {
+                                failedChunks.push(chunkIndex);
+                            }
+                            return { index: chunkIndex, success };
+                        }).catch(() => {
+                            failedChunks.push(chunkIndex);
+                            return { index: chunkIndex, success: false };
+                        })
+                    );
+                    
+                    await Promise.allSettled(retryPromises);
+                    
+                    // Wait before next round
+                    if (failedChunks.length > 0 && round < MAX_RETRY_ROUNDS - 1) {
+                        await new Promise(resolve => setTimeout(resolve, 2000 * (round + 1)));
+                    }
+                }
+            }
+
+            // Check if we have any failed chunks remaining
+            if (failedChunks.length > 0) {
+                throw new Error(`Failed to upload ${failedChunks.length} chunks after multiple retry attempts. Please try again.`);
+            }
 
             // Complete upload
             await axios.post(`${API_URL}/complete`, { upload_id: uploadId });
