@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { AppProvider } from "./contexts/AppContext";
 
 export const metadata: Metadata = {
     title: "CloudDrive - Secure File Storage",
@@ -22,7 +23,9 @@ export default function RootLayout({
                 />
             </head>
             <body className="antialiased">
-                {children}
+                <AppProvider>
+                    {children}
+                </AppProvider>
             </body>
         </html>
     );

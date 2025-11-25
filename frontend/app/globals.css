@@ -13,8 +13,16 @@
   }
 
   body {
-    @apply bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 text-gray-900;
+    @apply bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900 text-gray-900 dark:text-gray-100;
     font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Better touch targets for mobile */
+  button, a {
+    @apply touch-manipulation;
+    -webkit-tap-highlight-color: transparent;
   }
 }
 
@@ -33,6 +41,11 @@
         rgba(255, 255, 255, 0.6) 50%,
         transparent 100%);
     background-size: 1000px 100%;
+  }
+
+  /* Touch manipulation for better mobile performance */
+  .touch-manipulation {
+    touch-action: manipulation;
   }
 }
 
@@ -53,4 +66,23 @@
 /* Smooth transitions for all elements */
 * {
   @apply transition-colors duration-200;
+}
+
+/* Mobile optimizations */
+@media (max-width: 640px) {
+  /* Ensure text is readable on mobile */
+  body {
+    font-size: 16px; /* Prevents zoom on iOS */
+  }
+
+  /* Better spacing on mobile */
+  .glass {
+    @apply shadow-lg;
+  }
+}
+
+/* Prevent text selection on interactive elements */
+button, [role="button"] {
+  user-select: none;
+  -webkit-user-select: none;
 }
