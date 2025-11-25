@@ -82,7 +82,10 @@ export default function DriveInterface() {
 
             const uploadId = initResponse.data.id;
             const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
-            const CONCURRENCY_LIMIT = 14;
+            // Optimal concurrency: 1.5-2x number of bots
+            // With 9 bots: 13-18 chunks concurrently
+            // Using 15 for good balance between speed and stability
+            const CONCURRENCY_LIMIT = 20;
 
             setUploadProgress(prev => [...prev, {
                 fileName: file.name,
